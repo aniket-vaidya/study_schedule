@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Study Productivity Tracker — Dual Subject Calendar</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root{
+      --bg: #FDFBF8;
+      --card: #ffffff;
+      --muted: #6b7280;
+      --accent: #fb923c;
+    }
+    [data-theme="dark"] {
+      --bg: #0b1220;
+      --card: #071127;
+      --muted: #9ca3af;
+      --accent: #fb923c;
+    }
+    body {
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      background: var(--bg);
+      color: var(--muted);
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+    }
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 10px;
+    }
+    .day-tile {
+      aspect-ratio: 1 / 1;
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 10px;
+      box-shadow: 0 1px 4px rgba(2,6,23,0.06);
+      border: 1px solid rgba(15,23,42,0.04);
+      transition: transform .12s ease, box-shadow .12s ease;
+      background: var(--card);
+      cursor: pointer;
+      overflow: hidden;
+    }
+    .day-tile:focus { outline: 3px solid rgba(251,146,60,0.18); transform: translateY(-3px); }
+    .day-tile:hover { transform: translateY(-4px); box-shadow: 0 8px 20px rgba(2,6,23,0.08); }
+    .day-num { font-weight:700; color: #0f172a; font-size: 0.95rem; }
+    .day-subject { font-size: 0.68rem; color: #374151; opacity: 0.95; text-align:center; padding: 0 6px; }
+    .day-status {
+      display:inline-block; font-size: 0.65rem; padding: 4px 6px; border-radius: 999px; font-weight:600;
+    }
+    .sub-es { background: linear-gradient(180deg,#eff6ff, #dbeafe); border-left: 4px solid #60a5fa; }
+    .sub-emc { background: linear-gradient(180deg,#ecfdf5,#dcfce7); border-left: 4px solid #34d399; }
+    .sub-cca { background: linear-gradient(180deg,#fffbeb,#fef3c7); border-left: 4px solid #facc15; }
+    .sub-ml  { background: linear-gradient(180deg,#fff1f2,#fee2e2); border-left: 4px solid #f87171; }
+    .sub-exam{ background: linear-gradient(180deg,#f3e8ff,#e9d5ff); border-left: 4px solid #a855f7; color:#581c87; }
+    .sub-split-es-emc { background: linear-gradient(90deg, #eef5ff 50%, #f0fdf4 50%); }
+    .sub-split-cca-ml { background: linear-gradient(90deg, #fffcf1 50%, #fff5f6 50%); }
+    .sub-split-es-cca { background: linear-gradient(90deg, #eef5ff 50%, #fffcf1 50%); }
+    .sub-split-emc-ml { background: linear-gradient(90deg, #f0fdf4 50%, #fff5f6 50%); }
+    .complete { box-shadow: 0 0 0 3px rgba(16,185,129,0.08); border: 2px solid rgba(16,185,129,0.14); }
+    .partial { border: 2px dashed rgba(250,204,21,0.16); }
+    .incomplete { opacity: 0.95; border: 1px solid rgba(248,113,113,0.06); }
+    #tooltip {
+      position: absolute;
+      background: var(--card);
+      color: var(--muted);
+      border-radius: 8px;
+      padding: 8px 10px;
+      box-shadow: 0 6px 18px rgba(2,6,23,0.12);
+      border: 1px solid rgba(15,23,42,0.04);
+      font-size: 13px;
+      z-index: 60;
+      pointer-events: none;
+      transform-origin: top left;
+      transition: opacity .12s ease, transform .12s ease;
+    }
+    .modal-backdrop { background: rgba(2,6,23,0.45); }
+    .sr-only { position:absolute !important; height:1px; width:1px; overflow:hidden; clip:rect(1px,1px,1px,1px); white-space:nowrap; clip-path: inset(50%); border:0; padding:0; margin:-1px; }
+    @media (max-width: 640px) {
+      .calendar-grid { gap: 8px; }
+      .day-subject { font-size: 0.6rem; }
+    }
+  </style>
+</head>
+<body data-theme="" class="min-h-screen">
+
+  <div class="max-w-6xl mx-auto p-4 md:p-6">
+    <header class="flex items-start justify-between gap-4 mb-6">
+      <div>
+        <h1 class="text-2xl md:text-3xl font-bold text-slate-800">Study Productivity Tracker</h1>
+        <p class="text-sm text-slate-500 mt-1">Calendar view • Oct 5, 2025 → Nov 18, 2025</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <button id="themeToggle" class="px-3 py-2 rounded-lg text-sm font-semibold border shadow-sm" aria-pressed="false" title="Toggle dark / light">
+          Toggle Theme
+        </button>
+        <button id="resetBtn" class="px-3 py-2 rounded-lg text-sm font-semibold border shadow-sm text-red-600">Reset Progress</button>
+      </div>
+    </header>
+
+    <section class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <div class="bg-white rounded-xl p-4 shadow-sm border">
+        <p class="text-xs text-slate-400">Days Until First Exam</p>
+        <div class="mt-2 text-2xl font-bold text-slate-800" id="daysLeft">—</div>
+      </div>
+      <div class="bg-white rounded-xl p-4 shadow-sm border">
+        <p class="text-xs text-slate-400">Backlog Hours</p>
+        <div class="mt-2 text-2xl font-bold text-red-600" id="backlogHours">0</div>
+      </div>
+      <div class="bg-white rounded-xl p-4 shadow-sm border">
+        <p class="text-xs text-slate-400">Completed Hours</p>
+        <div class="mt-2 text-2xl font-bold text-green-600" id="completedHours">0</div>
+      </div>
+    </section>
+
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <div class="bg-white p-4 rounded-xl shadow-sm border flex flex-col justify-center">
+           <div class="flex items-center justify-between">
+             <h3 class="font-semibold text-slate-800">Overall Progress</h3>
+             <div id="progressPct" class="text-sm text-slate-500">0%</div>
+           </div>
+           <div class="w-full bg-slate-100 rounded-full h-3 mt-3 overflow-hidden">
+             <div id="progressBar" class="h-3 rounded-full" style="width:0%; background:linear-gradient(90deg,#60a5fa,#34d399)"></div>
+           </div>
+        </div>
+        <div class="bg-white p-4 rounded-xl shadow-sm border">
+            <h3 class="font-semibold text-slate-800 text-center mb-2">Planned Hours by Subject</h3>
+            <div class="max-w-[280px] mx-auto relative">
+                <canvas id="subjectPieChart"></canvas>
+            </div>
+        </div>
+    </section>
+
+    <section class="flex flex-wrap gap-2 items-center mb-4">
+      <button class="filter-btn px-3 py-1 text-sm rounded-full bg-slate-100" data-filter="all">Show All</button>
+      <button class="filter-btn px-3 py-1 text-sm rounded-full bg-blue-50" data-filter="es">Employability Skill</button>
+      <button class="filter-btn px-3 py-1 text-sm rounded-full bg-green-50" data-filter="emc">E-commerce</button>
+      <button class="filter-btn px-3 py-1 text-sm rounded-full bg-yellow-50" data-filter="cca">Cloud Computing</button>
+      <button class="filter-btn px-3 py-1 text-sm rounded-full bg-red-50" data-filter="ml">Machine Learning</button>
+      <button class="filter-btn px-3 py-1 text-sm rounded-full bg-purple-50" data-filter="exam">Exam Days</button>
+    </section>
+
+    <div class="bg-white p-3 rounded-xl shadow-sm border mb-3">
+      <div class="grid grid-cols-7 gap-2 text-center text-xs font-semibold text-slate-500">
+        <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
+      </div>
+    </div>
+
+    <div id="calendarArea" class="bg-white p-4 rounded-xl shadow-sm border">
+      <div id="calendar" class="calendar-grid" aria-live="polite"></div>
+      <div id="emptyMsg" class="text-sm text-slate-400 mt-3 hidden">No plan defined.</div>
+    </div>
+  </div>
+
+  <div id="tooltip" class="hidden" role="status" aria-hidden="true"></div>
+
+  <div id="modalBackdrop" class="fixed inset-0 hidden items-center justify-center z-50">
+    <div class="modal-backdrop absolute inset-0"></div>
+    <div role="dialog" aria-modal="true" aria-labelledby="modalTitle" class="relative max-w-xl w-full bg-white rounded-xl shadow-xl border p-5 z-60">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 id="modalTitle" class="text-lg font-bold text-slate-800">Day Details</h2>
+          <p id="modalDate" class="text-sm text-slate-500 mt-1">Date</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="closeModal" class="px-3 py-1 rounded-md text-sm border">Close</button>
+        </div>
+      </div>
+      <div id="modalBody" class="mt-4 space-y-4"></div>
+      <div class="flex justify-end gap-3 mt-4">
+        <button id="saveBtn" class="px-4 py-2 rounded-md bg-blue-600 text-white font-semibold">Save</button>
+        <button id="cancelBtn" class="px-4 py-2 rounded-md border">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const STORAGE_KEY = 'studyTracker_v2';
+  const THEME_KEY = 'studyTracker_theme';
+  const STUDY_HOURS_PER_DAY = 4;
+  const FIRST_EXAM = new Date('2025-11-11T00:00:00');
+  const SUBJECT_NAMES = {
+      es: 'Employability Skill',
+      emc: 'E-commerce',
+      cca: 'Cloud Computing',
+      ml: 'Machine Learning',
+  };
+
+  const studyPlan = {
+      '2025-10-05': { subjects: ['es', 'emc'], focus: ['ES: Unit 1', 'EMC: Unit 1'] },
+      '2025-10-06': { subjects: ['es', 'emc'], focus: ['ES: Unit 2', 'EMC: Unit 2'] },
+      '2025-10-07': { subjects: ['es', 'emc'], focus: ['ES: Unit 3', 'EMC: Unit 3'] },
+      '2025-10-08': { subjects: ['es', 'emc'], focus: ['ES: Unit 4', 'EMC: Unit 4'] },
+      '2025-10-09': { subjects: ['es', 'emc'], focus: ['ES: Unit 5', 'EMC: Unit 5'] },
+      '2025-10-10': { subjects: ['es', 'emc'], focus: ['ES: Unit 6', 'EMC: Unit 6'] },
+      '2025-10-11': { subjects: ['cca', 'ml'], focus: ['CCA: Unit 1', 'ML: Unit 1'] },
+      '2025-10-12': { subjects: ['cca', 'ml'], focus: ['CCA: Unit 2', 'ML: Unit 2'] },
+      '2025-10-13': { subjects: ['cca', 'ml'], focus: ['CCA: Unit 3', 'ML: Unit 3'] },
+      '2025-10-14': { subjects: ['cca', 'ml'], focus: ['CCA: Unit 4', 'ML: Unit 4'] },
+      '2025-10-15': { subjects: ['cca', 'ml'], focus: ['CCA: Unit 5', 'ML: Unit 5'] },
+      '2025-10-16': { subjects: ['cca', 'ml'], focus: ['CCA: Unit 6', 'ML: Unit 6'] },
+      '2025-10-17': { subjects: ['es', 'emc'], focus: ['ES: Revision U1-2', 'EMC: Revision U1-2'] },
+      '2025-10-18': { subjects: ['cca', 'ml'], focus: ['CCA: Revision U1-2', 'ML: Revision U1-2'] },
+      '2025-10-19': { subjects: ['es', 'emc'], focus: ['ES: Revision U3-4', 'EMC: Revision U3-4'] },
+      '2025-10-20': { subjects: ['cca', 'ml'], focus: ['CCA: Revision U3-4', 'ML: Revision U3-4'] },
+      '2025-10-21': { subjects: ['es', 'emc'], focus: ['ES: Revision U5-6', 'EMC: Revision U5-6'] },
+      '2025-10-22': { subjects: ['cca', 'ml'], focus: ['CCA: Revision U5-6', 'ML: Revision U5-6'] },
+      '2025-10-23': { subjects: ['es', 'cca'], focus: ['ES: Mixed Practice', 'CCA: Mixed Practice'] },
+      '2025-10-24': { subjects: ['emc', 'ml'], focus: ['EMC: Mixed Practice', 'ML: Mixed Practice'] },
+      '2025-10-25': { subjects: ['es', 'emc'], focus: ['ES/EMC Mock Test 1', 'Review'] },
+      '2025-10-26': { subjects: ['cca', 'ml'], focus: ['CCA/ML Mock Test 1', 'Review'] },
+      '2025-10-27': { subjects: ['es', 'emc'], focus: ['ES: Weak Topics', 'EMC: Weak Topics'] },
+      '2025-10-28': { subjects: ['es', 'emc'], focus: ['ES: Past Papers', 'EMC: Past Papers'] },
+      '2025-10-29': { subjects: ['cca', 'ml'], focus: ['CCA: Weak Topics', 'ML: Weak Topics'] },
+      '2025-10-30': { subjects: ['cca', 'ml'], focus: ['CCA: Past Papers', 'ML: Past Papers'] },
+      '2025-10-31': { subjects: ['es', 'emc'], focus: ['ES: Final Review', 'EMC: Final Review'] },
+      '2025-11-01': { subjects: ['cca', 'ml'], focus: ['CCA: Final Review', 'ML: Final Review'] },
+      '2025-11-02': { subjects: ['es', 'cca'], focus: ['ES: Quick Revision', 'CCA: Quick Revision'] },
+      '2025-11-03': { subjects: ['emc', 'ml'], focus: ['EMC: Quick Revision', 'ML: Quick Revision'] },
+      '2025-11-04': { subjects: ['es', 'emc'], focus: ['ES/EMC Mock Test 2', 'Review'] },
+      '2025-11-05': { subjects: ['cca', 'ml'], focus: ['CCA/ML Mock Test 2', 'Review'] },
+      '2025-11-06': { subjects: ['es', 'emc'], focus: ['ES: Final Polish', 'EMC: Final Polish'] },
+      '2025-11-07': { subjects: ['cca', 'ml'], focus: ['CCA: Final Polish', 'ML: Final Polish'] },
+      '2025-11-08': { subjects: ['es', 'emc'], focus: ['ES: Formulae/Concepts', 'EMC: Formulae/Concepts'] },
+      '2025-11-09': { subjects: ['cca', 'ml'], focus: ['CCA: Formulae/Concepts', 'ML: Formulae/Concepts'] },
+      '2025-11-10': { subjects: ['es'], focus: ['ES: Final Revision Day'] },
+      '2025-11-11': { subjects: ['exam'], focus: ['EXAM: Employability Skill'], exam: true },
+      '2025-11-12': { subjects: ['emc'], focus: ['EMC: Final Revision Day'] },
+      '2025-11-13': { subjects: ['exam'], focus: ['EXAM: E-commerce'], exam: true },
+      '2025-11-14': { subjects: ['cca'], focus: ['CCA: Final Revision Day'] },
+      '2025-11-15': { subjects: ['exam'], focus: ['EXAM: Cloud Computing'], exam: true },
+      '2025-11-16': { subjects: ['ml'], focus: ['ML: Final Revision Day'] },
+      '2025-11-17': { subjects: ['ml'], focus: ['ML: Light Revision & Rest'] },
+      '2025-11-18': { subjects: ['exam'], focus: ['EXAM: Machine Learning'], exam: true },
+  };
+
+  let subjectChartInstance = null; // Variable to hold the chart instance
+
+  function toISO(date) { /* ... same as before ... */
+    const y = date.getFullYear();
+    const m = String(date.getMonth()+1).padStart(2,'0');
+    const d = String(date.getDate()).padStart(2,'0');
+    return `${y}-${m}-${d}`;
+  }
+  function loadState() { /* ... same as before ... */
+    try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : {}; }
+    catch(e) { console.warn('Failed load state', e); return {}; }
+  }
+  function saveState(state) { /* ... same as before ... */
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }
+  function loadTheme(){ /* ... same as before ... */
+    const t = localStorage.getItem(THEME_KEY) || 'light'; setTheme(t);
+  }
+  function setTheme(t){ /* ... same as before ... */
+    const body = document.body;
+    body.setAttribute('data-theme', t === 'dark' ? 'dark' : '');
+    document.getElementById('themeToggle').textContent = t === 'dark' ? 'Light mode' : 'Dark mode';
+    document.getElementById('themeToggle').setAttribute('aria-pressed', t === 'dark' ? 'true' : 'false');
+    localStorage.setItem(THEME_KEY, t);
+    if(subjectChartInstance) updateAll(); // Re-render chart on theme change
+  }
+  function isPastOrToday(dateStr) { /* ... same as before ... */
+    const d = new Date(dateStr + 'T00:00:00');
+    const today = new Date(); today.setHours(0,0,0,0);
+    return d <= today;
+  }
+  function getTileBgClass(plan) { /* ... same as before ... */
+    if (!plan || !plan.subjects) return '';
+    if (plan.exam) return 'sub-exam';
+    if (plan.subjects.length === 1) return `sub-${plan.subjects[0]}`;
+    if (plan.subjects.length > 1) {
+        const sorted = [...plan.subjects].sort();
+        return `sub-split-${sorted[0]}-${sorted[1]}`;
+    }
+    return '';
+  }
+
+  function renderCalendar(trackingState = {}) { /* ... same as before ... */
+    const calendar = document.getElementById('calendar'); calendar.innerHTML = '';
+    const start = new Date('2025-10-05T00:00:00'); const end = new Date('2025-11-18T00:00:00');
+    const firstDay = start.getDay();
+    for(let i=0;i<firstDay;i++){ const el = document.createElement('div'); el.className = 'day-tile bg-transparent'; el.setAttribute('aria-hidden','true'); calendar.appendChild(el); }
+    let cur = new Date(start);
+    while(cur <= end) {
+      const iso = toISO(cur); const plan = studyPlan[iso];
+      const entry = trackingState[iso] || { studyBlocksCompleted: 0 }; const blocks = entry.studyBlocksCompleted || 0;
+      const tile = document.createElement('button'); tile.className = 'day-tile'; tile.type = 'button'; tile.tabIndex = 0; tile.dataset.date = iso;
+      const fullFocus = plan ? plan.focus.join(' / ') : 'No plan'; tile.setAttribute('aria-label', `${iso} - ${fullFocus}`); tile.setAttribute('title', fullFocus);
+      if (plan) { tile.classList.add(getTileBgClass(plan)); } else { tile.style.background = 'linear-gradient(#f8fafc,#f1f5f9)'; }
+      if (plan && !plan.exam && isPastOrToday(iso)) { if (blocks >= 2) tile.classList.add('complete'); else if (blocks === 1) tile.classList.add('partial'); else tile.classList.add('incomplete'); }
+      const num = document.createElement('div'); num.className = 'day-num'; num.textContent = cur.getDate();
+      const subj = document.createElement('div'); subj.className = 'day-subject'; subj.innerHTML = plan ? plan.focus.join(' <br/> ') : '—';
+      const status = document.createElement('div'); status.className = 'mt-2 text-right';
+      const badge = document.createElement('span'); badge.className = 'day-status';
+      if (plan && plan.exam) { badge.textContent = 'Exam'; badge.style.background = '#f3e8ff'; badge.style.color = '#6b21a8'; }
+      else { badge.textContent = `${blocks}/2`; if (blocks >= 2) { badge.style.background = '#ecfdf5'; badge.style.color = '#065f46'; } else if (blocks === 1) { badge.style.background = '#fffbeb'; badge.style.color = '#92400e'; } else { badge.style.background = '#fee2e2'; badge.style.color = '#7f1d1d'; } }
+      status.appendChild(badge); tile.appendChild(num); tile.appendChild(subj); tile.appendChild(status);
+      tile.addEventListener('click', () => openModal(iso)); tile.addEventListener('mouseenter', (e) => showTooltip(e, iso, plan, blocks)); tile.addEventListener('mouseleave', hideTooltip);
+      tile.addEventListener('focus', (e) => showTooltip(e, iso, plan, blocks)); tile.addEventListener('blur', hideTooltip);
+      calendar.appendChild(tile); cur.setDate(cur.getDate()+1);
+    }
+  }
+  const tooltipEl = document.getElementById('tooltip');
+  function showTooltip(evt, dateStr, plan, blocks) { /* ... same as before ... */
+    if (!plan) return;
+    const friendly = new Date(dateStr + 'T00:00:00').toLocaleDateString(undefined, { weekday:'long', month:'short', day:'numeric' });
+    let focusHTML = ''; if(plan.focus.length > 1){ focusHTML = plan.focus.map(f => `<div style="font-size:12px;margin-top:4px;">• ${f}</div>`).join(''); } else { focusHTML = `<div style="font-size:12px;margin-top:4px;">${plan.focus[0]}</div>` }
+    tooltipEl.innerHTML = `<strong style="display:block;font-weight:700;color:#0f172a">${friendly}</strong>${focusHTML}<div style="font-size:12px;margin-top:6px;font-weight:600">${plan.exam ? 'EXAM DAY' : `Progress: ${blocks} / 2 blocks`}</div>`;
+    tooltipEl.classList.remove('hidden'); tooltipEl.style.opacity = '1';
+    tooltipEl.style.left = (evt.target.getBoundingClientRect().right + 8 + window.scrollX) + 'px'; tooltipEl.style.top = (evt.target.getBoundingClientRect().top + window.scrollY) + 'px';
+    tooltipEl.setAttribute('aria-hidden','false');
+  }
+  function hideTooltip() { /* ... same as before ... */
+    tooltipEl.classList.add('hidden'); tooltipEl.style.opacity = '0'; tooltipEl.setAttribute('aria-hidden','true');
+  }
+  const modalBackdrop = document.getElementById('modalBackdrop');
+  const modalBody = document.getElementById('modalBody');
+  const modalDate = document.getElementById('modalDate');
+  let modalCurrentDate = null;
+  function openModal(dateStr) { /* ... same as before ... */
+    modalCurrentDate = dateStr; const plan = studyPlan[dateStr];
+    modalDate.textContent = new Date(dateStr + 'T00:00:00').toLocaleDateString(undefined, { weekday:'long', month:'long', day:'numeric' }); modalBody.innerHTML = '';
+    if (!plan) { modalBody.innerHTML = `<p class="text-sm text-slate-500">No study plan for this date.</p>`; }
+    else if (plan.exam) { modalBody.innerHTML = `<p class="text-sm font-semibold text-purple-700">EXAM DAY — ${plan.focus[0]}</p><p class="text-sm text-slate-500 mt-2">Good luck! Focus on the exam.</p>`; }
+    else {
+      const state = loadState(); const entry = state[dateStr] || { studyBlocksCompleted: 0 }; const completed = entry.studyBlocksCompleted || 0;
+      let blocks;
+      if (plan.subjects.length === 1) { blocks = [ { label: `${SUBJECT_NAMES[plan.subjects[0]]} (Block 1)`, focus: plan.focus[0], index: 0 }, { label: `${SUBJECT_NAMES[plan.subjects[0]]} (Block 2)`, focus: plan.focus[0], index: 1 } ]; }
+      else { blocks = [ { label: SUBJECT_NAMES[plan.subjects[0]], focus: plan.focus[0], index: 0 }, { label: SUBJECT_NAMES[plan.subjects[1]], focus: plan.focus[1], index: 1 } ]; }
+      blocks.forEach(b => {
+        const wrapper = document.createElement('div'); wrapper.className = 'flex items-center justify-between border rounded-md p-3';
+        const left = document.createElement('div'); left.innerHTML = `<div class="font-medium text-slate-800">${b.label}</div><div class="text-xs text-slate-500 mt-1">${b.focus}</div>`;
+        const right = document.createElement('div'); const chk = document.createElement('input'); chk.type = 'checkbox'; chk.id = `blk-${b.index}`;
+        chk.checked = (b.index === 0 && (completed === 1 || completed === 2)) || (b.index === 1 && completed === 2);
+        chk.dataset.index = b.index; chk.className = 'h-5 w-5 rounded text-blue-600 focus:ring-blue-500'; right.appendChild(chk);
+        wrapper.appendChild(left); wrapper.appendChild(right); modalBody.appendChild(wrapper);
+      });
+      const chk1 = document.getElementById('blk-0'); const chk2 = document.getElementById('blk-1');
+      if (chk1 && chk2) { chk1.addEventListener('change', () => { if (!chk1.checked) chk2.checked = false; }); chk2.addEventListener('change', () => { if (chk2.checked) chk1.checked = true; }); }
+    }
+    modalBackdrop.classList.remove('hidden'); modalBackdrop.style.display = 'flex'; document.getElementById('closeModal').focus();
+  }
+  function closeModal() { /* ... same as before ... */
+    modalBackdrop.classList.add('hidden'); modalBackdrop.style.display = 'none'; modalCurrentDate = null;
+  }
+  function saveModal() { /* ... same as before ... */
+    if (!modalCurrentDate) return; const plan = studyPlan[modalCurrentDate];
+    if (!plan || plan.exam) { closeModal(); return; }
+    const chk1 = document.getElementById('blk-0'); const chk2 = document.getElementById('blk-1');
+    const newBlocks = (chk1 && chk1.checked ? 1 : 0) + (chk2 && chk2.checked ? 1 : 0);
+    const state = loadState(); state[modalCurrentDate] = { date: modalCurrentDate, studyBlocksCompleted: newBlocks, totalDailyHours: STUDY_HOURS_PER_DAY, allTasksCompleted: newBlocks === 2 };
+    saveState(state); updateAll(); closeModal();
+  }
+  function resetState() { /* ... same as before ... */
+    if (!confirm('Clear all saved progress? This cannot be undone.')) return;
+    localStorage.removeItem(STORAGE_KEY); updateAll();
+  }
+  function computeStats(trackingState) { /* ... same as before ... */
+    let backlog = 0; let completed = 0; let totalPlannedDays = 0;
+    for (const date in studyPlan) {
+      const plan = studyPlan[date]; if (plan.exam) continue;
+      totalPlannedDays++;
+      const entry = trackingState[date] || { studyBlocksCompleted: 0 }; const hoursDone = (entry.studyBlocksCompleted || 0) * 2;
+      completed += hoursDone; if (isPastOrToday(date)) { const deficit = STUDY_HOURS_PER_DAY - hoursDone; if (deficit > 0) backlog += deficit; }
+    }
+    return { backlogHours: backlog, completedHours: completed, totalDays: totalPlannedDays };
+  }
+
+  // NEW: Function to calculate total hours per subject for the pie chart
+  function calculateSubjectHours() {
+      const hours = { es: 0, emc: 0, cca: 0, ml: 0 };
+      const hoursPerBlock = STUDY_HOURS_PER_DAY / 2; // 2 hours
+
+      for (const date in studyPlan) {
+          const plan = studyPlan[date];
+          if (plan.exam || !plan.subjects) continue;
+
+          plan.subjects.forEach(subject => {
+              if (hours.hasOwnProperty(subject)) {
+                  hours[subject] += hoursPerBlock;
+              }
+          });
+      }
+      return hours;
+  }
+
+  // NEW: Function to render the pie chart
+  function renderPieChart() {
+      const ctx = document.getElementById('subjectPieChart').getContext('2d');
+      const subjectHours = calculateSubjectHours();
+      const isDarkMode = document.body.getAttribute('data-theme') === 'dark';
+
+      if (subjectChartInstance) {
+          subjectChartInstance.destroy();
+      }
+
+      const data = {
+          labels: [ SUBJECT_NAMES.es, SUBJECT_NAMES.emc, SUBJECT_NAMES.cca, SUBJECT_NAMES.ml ],
+          datasets: [{
+              label: 'Study Hours',
+              data: [ subjectHours.es, subjectHours.emc, subjectHours.cca, subjectHours.ml ],
+              backgroundColor: [ '#60a5fa', '#34d399', '#facc15', '#f87171' ],
+              borderColor: isDarkMode ? '#071127' : '#ffffff',
+              borderWidth: 3,
+              hoverOffset: 8
+          }]
+      };
+
+      subjectChartInstance = new Chart(ctx, {
+          type: 'doughnut',
+          data: data,
+          options: {
+              responsive: true,
+              maintainAspectRatio: true,
+              plugins: {
+                  legend: {
+                      position: 'bottom',
+                      labels: {
+                          color: isDarkMode ? '#9ca3af' : '#6b7280',
+                          padding: 15,
+                          boxWidth: 12,
+                          font: { family: 'Inter, system-ui' }
+                      }
+                  },
+                  tooltip: {
+                      callbacks: {
+                          label: (context) => `${context.label || ''}: ${context.parsed || 0} hours`
+                      }
+                  }
+              },
+              cutout: '40%'
+          }
+      });
+  }
+
+  function updateAll() {
+    const state = loadState();
+    renderCalendar(state);
+
+    const { backlogHours, completedHours } = computeStats(state);
+    document.getElementById('backlogHours').textContent = backlogHours;
+    document.getElementById('completedHours').textContent = completedHours;
+
+    const today = new Date(); today.setHours(0,0,0,0);
+    const delta = Math.ceil((FIRST_EXAM - today) / (1000*60*60*24));
+    document.getElementById('daysLeft').textContent = delta > 0 ? delta : 0;
+
+    const totalRequiredHours = Object.values(studyPlan).filter(p=>!p.exam).length * STUDY_HOURS_PER_DAY;
+    const pct = totalRequiredHours ? Math.round((completedHours / totalRequiredHours) * 100) : 0;
+    document.getElementById('progressPct').textContent = pct + '%';
+    document.getElementById('progressBar').style.width = Math.min(100, pct) + '%';
+    
+    renderPieChart(); // Render the chart with latest data
+  }
+
+  document.getElementById('closeModal').addEventListener('click', closeModal);
+  document.getElementById('cancelBtn').addEventListener('click', closeModal);
+  document.getElementById('saveBtn').addEventListener('click', saveModal);
+  document.getElementById('modalBackdrop').addEventListener('click', (e) => {
+    if (e.target === document.getElementById('modalBackdrop')) closeModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !modalBackdrop.classList.contains('hidden')) closeModal();
+  });
+  document.getElementById('themeToggle').addEventListener('click', () => {
+    const current = document.body.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    setTheme(current === 'dark' ? 'light' : 'dark');
+  });
+  document.getElementById('resetBtn').addEventListener('click', resetState);
+  document.querySelectorAll('.filter-btn').forEach(btn => { /* ... same as before ... */
+    btn.addEventListener('click', () => {
+      const f = btn.dataset.filter;
+      document.querySelectorAll('.day-tile[data-date]').forEach(tile => {
+        const d = tile.dataset.date; const p = studyPlan[d]; tile.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
+        if (f === 'all') { tile.style.opacity = '1'; tile.style.transform = ''; }
+        else {
+          if (!p) { tile.style.opacity = '0.18'; return; }
+          const matches = (f === 'exam' && p.exam) || (p.subjects && p.subjects.includes(f));
+          if (matches) { tile.style.opacity = '1'; tile.style.transform = 'translateY(-4px)'; }
+          else { tile.style.opacity = '0.18'; tile.style.transform = ''; }
+        }
+      });
+    });
+  });
+
+  loadTheme();
+  updateAll();
+  window.studyTracker = { updateAll, loadState, saveState };
+})();
+</script>
+</body>
+</html>
